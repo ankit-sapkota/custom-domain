@@ -4,3 +4,4 @@ python-dotenv
 httpx
 requests
 validators
+black
