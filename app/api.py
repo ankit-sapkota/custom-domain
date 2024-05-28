@@ -68,6 +68,7 @@ async def verify_domain(domain: str, api_key:APIKey = Depends(get_api_key)):
 async def get_text_file(content: str, request: Request):
     domain = request.headers.get("host")
     filepath = os.path.join(texts_dir, f"{domain}.txt")
+    stored_content = None
     if os.path.exists(filepath):
         with open(filepath, "r") as file:
             stored_content = file.read()

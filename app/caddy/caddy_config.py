@@ -1,12 +1,43 @@
 import logging
 import time
-
+import os
 import requests
 import json
 
 from app.caddy import saas_template
 from app.caddy.saas_template import DomainAlreadyExists, DomainDoesNotExist
 
+
+# Define the new configuration to be added
+new_route = {
+    "handle": [
+        {
+            "handler": "subroute",
+            "routes": [
+                {
+                    "handle": [
+                        {
+                            "handler": "reverse_proxy",
+                            "upstreams": [
+                                {
+                                    "dial": "localhost:9000"
+                                }
+                            ]
+                        }
+                    ],
+                    "match": [
+                        {
+                            "path": ["/well-known*"]
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+}
+
+
+DEFAULT_CADDY_FILE = "domains/caddy.json"
 
 class CaddyAPIConfigurator:
 
@@ -16,11 +47,48 @@ class CaddyAPIConfigurator:
         self.config = {}
         self.https_port = https_port
         self.disable_https = disable_https
+        self.config_json_file = os.environ.get('CADDY_CONFIG_FILE', DEFAULT_CADDY_FILE)
+
 
     def init_config(self):
         config = saas_template.https_template(disable_https=self.disable_https)
         if self.load_new_config(config):
             self.config = config
+            self.save_config(self.config_json_file)
+
+    def route_exists(self,routes, new_route):
+        for route in routes:
+            if route == new_route:
+                return True
+        return False
+
+    def check_and_add_path_for_challenge(self):
+        server_block_exists = False
+        for server in self.config['apps']['http']['servers']:
+            if ':80' in self.config['apps']['http']['servers'][server]['listen']:
+                server_block_exists = True
+                server_key = server
+                break
+
+        # If the server block does not exist, create it
+        if not server_block_exists:
+            self.config['apps']['http']['servers']['new_server'] = {
+                "listen": [":80"],
+                 "automatic_https": {
+                    "disable": True
+                },
+                "routes": [new_route]
+            }
+        else:
+            # If the server block exists, check if the route exists
+            routes = self.config['apps']['http']['servers'][server_key].get('routes', [])
+            if not self.route_exists(routes, new_route):
+                routes.append(new_route)
+                self.config['apps']['http']['servers'][server_key]['routes'] = routes
+    
+        self.load_new_config(self.config)
+        self.save_config(self.config_json_file)
+
 
     def load_new_config(self, config):
         try:
@@ -145,6 +213,8 @@ if __name__ == "__main__":
     configurator = CaddyAPIConfigurator(CADDY_API_URL, SERVER_PORT, disable_https=False)
     if not configurator.load_config_from_file(CADDY_FILE):
         configurator.init_config()
+
+    configurator.check_and_add_path_for_challenge()
 
     # Assuming these are customer domains you want to support
     custom_domains = [
