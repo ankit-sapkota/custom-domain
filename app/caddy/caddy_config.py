@@ -1,9 +1,9 @@
 import logging
-import time
 import os
 import requests
 import json
-
+from http import HTTPStatus
+from fastapi import HTTPException
 from app.caddy import saas_template
 from app.caddy.saas_template import DomainAlreadyExists, DomainDoesNotExist
 
@@ -179,7 +179,7 @@ class CaddyAPIConfigurator:
 
             except DomainDoesNotExist:
                 self.logger.error(f"Domain '{domain} does not exist.")
-                raise
+                raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail= f"Domain '{domain}' does not exist.")
 
         except requests.exceptions.HTTPError as e:
             self.logger.error(f"An error occurred while deleting the domain '{domain}': {e}")
