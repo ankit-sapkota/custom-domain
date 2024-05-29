@@ -34,6 +34,7 @@ class Caddy:
         if not self.configurator.load_config_from_file(self.config_json_file):
             self.configurator.init_config()
         self.configurator.check_and_add_path_for_challenge()
+        
 
         
 

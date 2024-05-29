@@ -6,3 +6,4 @@ requests
 validators
 black
 aiofiles
+dnspython

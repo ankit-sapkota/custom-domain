@@ -18,26 +18,21 @@ new_route = {
                     "handle": [
                         {
                             "handler": "reverse_proxy",
-                            "upstreams": [
-                                {
-                                    "dial": "localhost:9000"
-                                }
-                            ]
+                            "upstreams": [{"dial": "localhost:9000"}],
                         }
                     ],
-                    "match": [
-                        {
-                            "path": ["/well-known*"]
-                        }
-                    ]
+                    "match": [{"path": ["/well-known*"]}],
+                    "terminal": True,
                 }
-            ]
+            ],
         }
-    ]
+    ],
+    "terminal": True,
 }
 
 
 DEFAULT_CADDY_FILE = "domains/caddy.json"
+
 
 class CaddyAPIConfigurator:
 
@@ -47,8 +42,7 @@ class CaddyAPIConfigurator:
         self.config = {}
         self.https_port = https_port
         self.disable_https = disable_https
-        self.config_json_file = os.environ.get('CADDY_CONFIG_FILE', DEFAULT_CADDY_FILE)
-
+        self.config_json_file = os.environ.get("CADDY_CONFIG_FILE", DEFAULT_CADDY_FILE)
 
     def init_config(self):
         config = saas_template.https_template(disable_https=self.disable_https)
@@ -56,7 +50,7 @@ class CaddyAPIConfigurator:
             self.config = config
             self.save_config(self.config_json_file)
 
-    def route_exists(self,routes, new_route):
+    def route_exists(self, routes, new_route):
         for route in routes:
             if route == new_route:
                 return True
@@ -64,40 +58,43 @@ class CaddyAPIConfigurator:
 
     def check_and_add_path_for_challenge(self):
         server_block_exists = False
-        for server in self.config['apps']['http']['servers']:
-            if ':80' in self.config['apps']['http']['servers'][server]['listen']:
+        for server in self.config["apps"]["http"]["servers"]:
+            if ":80" in self.config["apps"]["http"]["servers"][server]["listen"]:
                 server_block_exists = True
                 server_key = server
                 break
 
         # If the server block does not exist, create it
         if not server_block_exists:
-            self.config['apps']['http']['servers']['80'] = {
+            self.config["apps"]["http"]["servers"]["000"] = {
                 "listen": [":80"],
-                 "automatic_https": {
-                    "disable": True
-                },
-                "routes": [new_route]
+                "automatic_https": {"disable": True},
+                "routes": [new_route],
             }
         else:
             # If the server block exists, check if the route exists
-            routes = self.config['apps']['http']['servers'][server_key].get('routes', [])
+            routes = self.config["apps"]["http"]["servers"][server_key].get(
+                "routes", []
+            )
             if not self.route_exists(routes, new_route):
                 routes.append(new_route)
-                self.config['apps']['http']['servers'][server_key]['routes'] = routes
+                self.config["apps"]["http"]["servers"][server_key]["routes"] = routes
         self.update_auto_https_for_existing_domains()
         self.load_new_config(self.config)
         self.save_config(self.config_json_file)
 
     def update_auto_https_for_existing_domains(self):
-        self.config["apps"]["http"]["servers"]["443"]["automatic_https"]["disable"] = self.disable_https
-
+        self.config["apps"]["http"]["servers"]["443"]["automatic_https"][
+            "disable"
+        ] = self.disable_https
 
     def load_new_config(self, config):
         try:
             # Update the Caddy configuration using the /load endpoint
             headers = {"Content-Type": "application/json"}
-            response = requests.post(f"{self.api_url}/load", headers=headers, data=json.dumps(config))
+            response = requests.post(
+                f"{self.api_url}/load", headers=headers, data=json.dumps(config)
+            )
             response.raise_for_status()
 
             self.logger.info(f"Configuration has been loaded from config:\n{config}")
@@ -110,7 +107,7 @@ class CaddyAPIConfigurator:
 
     def load_config_from_file(self, file_path):
         try:
-            with open(file_path, 'r') as config_file:
+            with open(file_path, "r") as config_file:
                 config = json.load(config_file)
                 success = self.load_new_config(config)
                 if success:
@@ -128,7 +125,7 @@ class CaddyAPIConfigurator:
             config = response.json()
 
             # Save the configuration to a file
-            with open(file_path, 'w') as config_file:
+            with open(file_path, "w") as config_file:
                 json.dump(config, config_file, indent=2)
 
             self.logger.info(f"Configuration has been saved to {file_path}.")
@@ -148,7 +145,7 @@ class CaddyAPIConfigurator:
                     upstream,
                     template=config,
                     port=self.https_port,
-                    disable_https=self.disable_https
+                    disable_https=self.disable_https,
                 )
 
                 # Try loading new config. If not successful, load the previous config
@@ -163,7 +160,9 @@ class CaddyAPIConfigurator:
                 raise
 
         except requests.exceptions.HTTPError as e:
-            self.logger.error(f"An error occurred while adding the domain '{domain}': {e}")
+            self.logger.error(
+                f"An error occurred while adding the domain '{domain}': {e}"
+            )
             raise
 
     def delete_domain(self, domain):
@@ -171,7 +170,9 @@ class CaddyAPIConfigurator:
             config = self.config.copy()
 
             try:
-                new_config = saas_template.delete_https_domain(domain, config, port=self.https_port)
+                new_config = saas_template.delete_https_domain(
+                    domain, config, port=self.https_port
+                )
 
                 # Try loading new config. If not successful, load the previous config
                 if self.load_new_config(new_config):
@@ -182,10 +183,15 @@ class CaddyAPIConfigurator:
 
             except DomainDoesNotExist:
                 self.logger.error(f"Domain '{domain} does not exist.")
-                raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail= f"Domain '{domain}' does not exist.")
+                raise HTTPException(
+                    status_code=HTTPStatus.NOT_FOUND,
+                    detail=f"Domain '{domain}' does not exist.",
+                )
 
         except requests.exceptions.HTTPError as e:
-            self.logger.error(f"An error occurred while deleting the domain '{domain}': {e}")
+            self.logger.error(
+                f"An error occurred while deleting the domain '{domain}': {e}"
+            )
             # self.logger.error(f"Response content: {response.content.decode('utf-8')}")
             raise
 

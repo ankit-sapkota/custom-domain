@@ -5,6 +5,7 @@ import aiofiles
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.openapi.models import APIKey
 from fastapi.responses import PlainTextResponse
+import dns.resolver
 from app.caddy.caddy import caddy_server
 from app.security import get_api_key
 from app.utils import generate_random_string, silent_remove_file
@@ -78,7 +79,8 @@ async def verify_domain(domain: str, api_key:APIKey = Depends(get_api_key)):
         ]
     }
 
-    resp["verified"] = True if response.status_code == 200 else False
+    resp["domain_verified"] = True if response.status_code == 200 else False
+    resp["txt_verified"] = True if await verify_txt_record_of_domain(domain=domain, txt_record=content) else False
     return resp
     
 @domain_api.get("/well-known/acme-challenge/{content}")
@@ -93,3 +95,18 @@ async def get_text_file(content: str, request: Request):
         return PlainTextResponse(content)
     else:
         raise HTTPException(status_code=404, detail="Not found")
+    
+async def verify_txt_record_of_domain(domain:str, txt_record:str):
+    try:
+        answers = dns.resolver.resolve(domain, 'TXT')
+        for rdata in answers:
+            for txt_string in rdata.strings:
+                if txt_string.decode() == txt_record:
+                    return True
+        return False
+    except dns.resolver.NoAnswer:
+        print(f"No TXT record found for {domain}")
+    except dns.resolver.NXDOMAIN:
+        print(f"The domain {domain} does not exist")
+    except Exception as e:
+        print(f"An error occurred: {e}")
