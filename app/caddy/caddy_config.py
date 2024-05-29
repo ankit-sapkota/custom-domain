@@ -72,7 +72,7 @@ class CaddyAPIConfigurator:
 
         # If the server block does not exist, create it
         if not server_block_exists:
-            self.config['apps']['http']['servers']['new_server'] = {
+            self.config['apps']['http']['servers']['80'] = {
                 "listen": [":80"],
                  "automatic_https": {
                     "disable": True
@@ -85,9 +85,12 @@ class CaddyAPIConfigurator:
             if not self.route_exists(routes, new_route):
                 routes.append(new_route)
                 self.config['apps']['http']['servers'][server_key]['routes'] = routes
-    
+        self.update_auto_https_for_existing_domains()
         self.load_new_config(self.config)
         self.save_config(self.config_json_file)
+
+    def update_auto_https_for_existing_domains(self):
+        self.config["apps"]["http"]["servers"]["443"]["automatic_https"]["disable"] = self.disable_https
 
 
     def load_new_config(self, config):
