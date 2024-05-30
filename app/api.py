@@ -62,7 +62,7 @@ async def verify_domain(domain: str, api_key:APIKey = Depends(get_api_key)):
         async with aiofiles.open(filepath,mode= "w") as file:
             await file.write(content)
     async with httpx.AsyncClient() as client:
-        response = await client.get(url=f"http://{domain}/well-known/acme-challenge/{content}")
+        response = await client.get(url=f"http://{domain}/.well-known/acme-challenge/{content}")
 
     resp = {
         "records":[
@@ -83,7 +83,7 @@ async def verify_domain(domain: str, api_key:APIKey = Depends(get_api_key)):
     resp["txt_verified"] = True if await verify_txt_record_of_domain(domain=domain, txt_record=content) else False
     return resp
     
-@domain_api.get("/well-known/acme-challenge/{content}")
+@domain_api.get("/.well-known/acme-challenge/{content}")
 async def get_text_file(content: str, request: Request):
     domain = request.headers.get("host")
     filepath = os.path.join(texts_dir, f"{domain}.txt")
@@ -98,7 +98,10 @@ async def get_text_file(content: str, request: Request):
     
 async def verify_txt_record_of_domain(domain:str, txt_record:str):
     try:
-        answers = dns.resolver.resolve(domain, 'TXT')
+        resolver = dns.resolver.Resolver(configure=False)
+        resolver.nameservers = ['1.1.1.1']
+        answers = resolver.resolve(domain, 'TXT')
+
         for rdata in answers:
             for txt_string in rdata.strings:
                 if txt_string.decode() == txt_record:
