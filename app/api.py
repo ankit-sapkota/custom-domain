@@ -62,7 +62,7 @@ async def verify_domain(domain: str, api_key:APIKey = Depends(get_api_key)):
         async with aiofiles.open(filepath,mode= "w") as file:
             await file.write(content)
     async with httpx.AsyncClient() as client:
-        response = await client.get(url=f"http://{domain}/.well-known/acme-challenge/{content}")
+        response = await client.get(url=f"http://{domain}:9000/.well-known/acme-challenge/{content}")
 
     resp = {
         "records":[
@@ -85,7 +85,8 @@ async def verify_domain(domain: str, api_key:APIKey = Depends(get_api_key)):
     
 @domain_api.get("/.well-known/acme-challenge/{content}")
 async def get_text_file(content: str, request: Request):
-    domain = request.headers.get("host")
+    domain = request.url.hostname
+    print(domain)
     filepath = os.path.join(texts_dir, f"{domain}.txt")
     stored_content = None
     if os.path.exists(filepath):
