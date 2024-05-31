@@ -61,8 +61,13 @@ async def verify_domain(domain: str, api_key:APIKey = Depends(get_api_key)):
         content = generate_random_string()
         async with aiofiles.open(filepath,mode= "w") as file:
             await file.write(content)
+    response = None
     async with httpx.AsyncClient() as client:
-        response = await client.get(url=f"http://{domain}:9000/.well-known/acme-challenge/{content}")
+        try:
+            response = await client.get(url=f"http://{domain}:9000/.well-known/acme-challenge/{content}")
+        except Exception as e:
+            print(e)
+            pass
 
     resp = {
         "records":[
@@ -79,7 +84,7 @@ async def verify_domain(domain: str, api_key:APIKey = Depends(get_api_key)):
         ]
     }
 
-    resp["domain_verified"] = True if response.status_code == 200 else False
+    resp["domain_verified"] = True if response and response.status_code == 200 else False
     resp["txt_verified"] = True if await verify_txt_record_of_domain(domain=domain, txt_record=content) else False
     return resp
     
