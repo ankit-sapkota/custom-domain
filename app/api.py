@@ -50,7 +50,7 @@ async def remove_domains(domain: str,
     silent_remove_file(filepath)
     return "OK"
 
-@domain_api.get("/domains/verify/{domain}")
+@domain_api.get("/domains/verify/{domain}", tags=["Domain Verification API"])
 async def verify_domain(domain: str, api_key:APIKey = Depends(get_api_key)):
     filename = f"{domain}.txt"
     filepath = os.path.join(texts_dir, filename)
@@ -88,7 +88,7 @@ async def verify_domain(domain: str, api_key:APIKey = Depends(get_api_key)):
     resp["txt_verified"] = True if await verify_txt_record_of_domain(domain=domain, txt_record=content) else False
     return resp
     
-@domain_api.get("/.well-known/acme-challenge/{content}")
+@domain_api.get("/.well-known/acme-challenge/{content}", tags=["Domain Verification API"])
 async def get_text_file(content: str, request: Request):
     domain = request.url.hostname
     print(domain)
