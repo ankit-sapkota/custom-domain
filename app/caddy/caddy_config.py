@@ -8,29 +8,6 @@ from app.caddy import saas_template
 from app.caddy.saas_template import DomainAlreadyExists, DomainDoesNotExist
 
 
-# Define the new configuration to be added
-new_route = {
-    "handle": [
-        {
-            "handler": "subroute",
-            "routes": [
-                {
-                    "handle": [
-                        {
-                            "handler": "reverse_proxy",
-                            "upstreams": [{"dial": "localhost:9000"}],
-                        }
-                    ],
-                    "match": [{"path": ["/well-known*"]}],
-                    "terminal": True,
-                }
-            ],
-        }
-    ],
-    "terminal": True,
-}
-
-
 DEFAULT_CADDY_FILE = "domains/caddy.json"
 
 
@@ -49,44 +26,6 @@ class CaddyAPIConfigurator:
         if self.load_new_config(config):
             self.config = config
             self.save_config(self.config_json_file)
-
-    def route_exists(self, routes, new_route):
-        for route in routes:
-            if route == new_route:
-                return True
-        return False
-
-    def check_and_add_path_for_challenge(self):
-        server_block_exists = False
-        for server in self.config["apps"]["http"]["servers"]:
-            if ":80" in self.config["apps"]["http"]["servers"][server]["listen"]:
-                server_block_exists = True
-                server_key = server
-                break
-
-        # If the server block does not exist, create it
-        if not server_block_exists:
-            self.config["apps"]["http"]["servers"]["000"] = {
-                "listen": [":80"],
-                "automatic_https": {"disable": True},
-                "routes": [new_route],
-            }
-        else:
-            # If the server block exists, check if the route exists
-            routes = self.config["apps"]["http"]["servers"][server_key].get(
-                "routes", []
-            )
-            if not self.route_exists(routes, new_route):
-                routes.append(new_route)
-                self.config["apps"]["http"]["servers"][server_key]["routes"] = routes
-        self.update_auto_https_for_existing_domains()
-        self.load_new_config(self.config)
-        self.save_config(self.config_json_file)
-
-    def update_auto_https_for_existing_domains(self):
-        self.config["apps"]["http"]["servers"]["443"]["automatic_https"][
-            "disable"
-        ] = self.disable_https
 
     def load_new_config(self, config):
         try:
@@ -240,15 +179,3 @@ if __name__ == "__main__":
     # We want to save the config so the changes persist during restart
     configurator.save_config(CADDY_FILE)
 
-    # To check if the custom domains are setup, checkout
-    # https://customer1.domain.localhost
-    # https://customer2.domain.localhost
-    # and so on.
-    #
-    # Note that, we're using *.localhost for this local test. It is
-    # because Caddy creates certificates for *.localhost domains.
-    # If it is not working for you, then you might need to run
-    # $ caddy trust
-    #
-    # This will install Caddy CA to your host operating system
-    # and the HTTPS certificate will be trusted.

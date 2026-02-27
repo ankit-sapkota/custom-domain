@@ -1,3 +1,4 @@
+import logging
 import os
 
 from dotenv import load_dotenv
@@ -5,6 +6,7 @@ from fastapi import HTTPException
 import validators
 
 from app.caddy.caddy_config import CaddyAPIConfigurator
+from app.utils import check_a_record, get_server_ip
 
 HTTPS_PORT = 443
 
@@ -15,6 +17,8 @@ DEFAULT_LOCAL_PORT = f"{HTTPS_PORT}"
 
 load_dotenv()
 
+logger = logging.getLogger(__name__)
+
 
 class Caddy:
 
@@ -24,6 +28,12 @@ class Caddy:
         self.saas_upstream = os.environ.get('SAAS_UPSTREAM', DEFAULT_SAAS_UPSTREAM)
         self.local_port = os.environ.get('LOCAL_PORT', DEFAULT_LOCAL_PORT)
         self.disable_https = os.environ.get('DISABLE_HTTPS', 'False').upper() == "TRUE"
+        self.server_ip = get_server_ip()
+
+        if self.server_ip:
+            logger.info(f"Server public IP: {self.server_ip}")
+        else:
+            logger.warning("Could not determine server public IP. A-record validation will fail.")
 
         self.configurator = CaddyAPIConfigurator(
             api_url=self.admin_url,
@@ -33,14 +43,19 @@ class Caddy:
 
         if not self.configurator.load_config_from_file(self.config_json_file):
             self.configurator.init_config()
-        self.configurator.check_and_add_path_for_challenge()
-        
-
-        
 
     def add_custom_domain(self, domain, upstream):
         if not validators.domain(domain):
             raise HTTPException(status_code=400, detail=f"{domain} is not a valid domain")
+
+        if not self.server_ip:
+            raise HTTPException(status_code=500, detail="Server IP not available. Cannot validate A record.")
+
+        if not check_a_record(domain, self.server_ip):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Domain '{domain}' A record does not point to this server ({self.server_ip})."
+            )
 
         upstream = upstream or self.saas_upstream
         if not self.configurator.add_domain(domain, upstream):
@@ -53,7 +68,7 @@ class Caddy:
             raise HTTPException(status_code=400, detail=f"{domain} is not a valid domain")
 
         if not self.configurator.delete_domain(domain):
-            raise HTTPException(status_code=400, detail=f"Failed to remove domain: {domain}. Might not be exist.")
+            raise HTTPException(status_code=400, detail=f"Failed to remove domain: {domain}. Might not exist.")
 
         self.configurator.save_config(self.config_json_file)
 
@@ -62,6 +77,32 @@ class Caddy:
 
     def list_domains(self):
         return self.configurator.list_domains()
+
+    def audit_domains(self):
+        """Remove domains whose A record no longer points to this server."""
+        if not self.server_ip:
+            logger.warning("Server IP unknown — skipping domain audit.")
+            return []
+
+        domains = self.list_domains()
+        removed: list[str] = []
+
+        for domain in domains:
+            if not check_a_record(domain, self.server_ip):
+                logger.info(f"Audit: removing '{domain}' — A record no longer points to {self.server_ip}")
+                try:
+                    self.configurator.delete_domain(domain)
+                    removed.append(domain)
+                except Exception as e:
+                    logger.error(f"Audit: failed to remove '{domain}': {e}")
+
+        if removed:
+            self.configurator.save_config(self.config_json_file)
+            logger.info(f"Audit complete. Removed {len(removed)} domain(s): {removed}")
+        else:
+            logger.info("Audit complete. All domains are correctly pointed.")
+
+        return removed
 
 
 caddy_server = Caddy()
