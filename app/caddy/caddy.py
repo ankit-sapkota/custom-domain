@@ -7,6 +7,7 @@ import validators
 
 from app.caddy.caddy_config import CaddyAPIConfigurator
 from app.utils import check_a_record, get_server_ip
+from app.domain_queue import pending_queue
 
 HTTPS_PORT = 443
 
@@ -45,23 +46,32 @@ class Caddy:
             self.configurator.init_config()
 
     def add_custom_domain(self, domain, upstream):
+        """Validate the domain name and enqueue it for background verification.
+
+        The domain is NOT added to Caddy immediately.  A background polling
+        loop will promote it once DNS is verified.
+        """
         if not validators.domain(domain):
             raise HTTPException(status_code=400, detail=f"{domain} is not a valid domain")
 
-        if not self.server_ip:
-            raise HTTPException(status_code=500, detail="Server IP not available. Cannot validate A record.")
-
-        if not check_a_record(domain, self.server_ip):
-            raise HTTPException(
-                status_code=400,
-                detail=f"Domain '{domain}' A record does not point to this server ({self.server_ip})."
-            )
-
         upstream = upstream or self.saas_upstream
-        if not self.configurator.add_domain(domain, upstream):
-            raise HTTPException(status_code=400, detail=f"Failed to add domain: {domain}")
 
+        # If already live in Caddy, nothing to do.
+        if domain in self.list_domains():
+            logger.info(f"Domain '{domain}' is already active in Caddy.")
+            return
+
+        # Add to pending queue — background loop will verify & promote.
+        pending_queue.add(domain, upstream)
+
+    def promote_domain(self, domain: str, upstream: str) -> bool:
+        """Add a verified domain directly into the live Caddy config."""
+        if not self.configurator.add_domain(domain, upstream):
+            logger.error(f"Failed to promote domain '{domain}' to Caddy.")
+            return False
         self.configurator.save_config(self.config_json_file)
+        logger.info(f"Promoted '{domain}' into live Caddy config.")
+        return True
 
     def remove_custom_domain(self, domain):
         if not validators.domain(domain):

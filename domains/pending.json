@@ -1,0 +1,10 @@
+{
+  "forms.bhattarai.me": {
+    "upstream": "admin.bettercollected.io:443",
+    "added_at": 1772179899.8489645
+  },
+  "forms.sireto.io": {
+    "upstream": "admin.bettercollected.io:443",
+    "added_at": 1772179935.2045212
+  }
+}

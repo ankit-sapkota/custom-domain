@@ -14,7 +14,9 @@ from starlette.responses import RedirectResponse, JSONResponse
 
 from app.api import domain_api
 from app.caddy.caddy import caddy_server
+from app.domain_queue import pending_queue
 from app.security import API_KEY_NAME, COOKIE_DOMAIN, get_api_key
+from app.utils import check_a_record, check_txt_record
 
 # Load all environment variables from .env uploaded_file
 load_dotenv()
@@ -22,6 +24,68 @@ logger = logging.getLogger(__name__)
 
 # Interval (in seconds) between domain-audit runs.  Default: 1 hour.
 DOMAIN_AUDIT_INTERVAL = int(os.environ.get("DOMAIN_AUDIT_INTERVAL", 3600))
+
+# Interval (in seconds) between pending-domain verification polls.  Default: 60 s.
+PENDING_POLL_INTERVAL = int(os.environ.get("PENDING_POLL_INTERVAL", 60))
+
+
+# Directory where per-domain TXT tokens are stored.
+TEXTS_DIR = os.path.join(os.getcwd(), "domains", "texts")
+
+
+async def _pending_verification_loop():
+    """Every PENDING_POLL_INTERVAL seconds, check all pending domains.
+
+    * If both A and TXT records are verified → promote into Caddy and
+      remove from the pending queue.
+    * Expired entries (>24 h by default) are marked as ``failed``.
+    """
+    while True:
+        await asyncio.sleep(PENDING_POLL_INTERVAL)
+        try:
+            # 1. Mark expired entries as failed.
+            failed = pending_queue.cleanup_expired()
+            if failed:
+                logger.info(f"Pending queue: domains marked failed (expired): {failed}")
+
+            # 2. Try to verify remaining *pending* domains (skip failed).
+            server_ip = caddy_server.server_ip
+            if not server_ip:
+                logger.warning("Server IP unknown — skipping pending verification.")
+                continue
+
+            pending = pending_queue.get_pending_only()
+            for domain, info in pending.items():
+                upstream = info.get("upstream", caddy_server.saas_upstream)
+
+                # A record check
+                a_ok = check_a_record(domain, server_ip)
+
+                # TXT record check — read persisted token
+                txt_ok = False
+                txt_filepath = os.path.join(TEXTS_DIR, f"{domain}.txt")
+                if os.path.exists(txt_filepath):
+                    try:
+                        with open(txt_filepath, "r") as fh:
+                            txt_token = fh.read().strip()
+                        if txt_token:
+                            txt_ok = check_txt_record(domain, txt_token)
+                    except OSError:
+                        pass
+
+                if a_ok and txt_ok:
+                    logger.info(f"Pending '{domain}' fully verified (A+TXT) — promoting to Caddy.")
+                    if caddy_server.promote_domain(domain, upstream):
+                        pending_queue.remove(domain)
+                    else:
+                        logger.error(f"Failed to promote '{domain}' even though DNS verified.")
+                else:
+                    logger.debug(
+                        f"Pending '{domain}': A={'OK' if a_ok else 'FAIL'}, "
+                        f"TXT={'OK' if txt_ok else 'FAIL'} — not yet ready."
+                    )
+        except Exception as exc:
+            logger.error(f"Pending verification error: {exc}")
 
 
 async def _domain_audit_loop():
@@ -44,13 +108,17 @@ async def lifespan(app: FastAPI):
     logger.info("App started")
     audit_task = asyncio.create_task(_domain_audit_loop())
     logger.info(f"Domain audit scheduler started (interval={DOMAIN_AUDIT_INTERVAL}s)")
+    pending_task = asyncio.create_task(_pending_verification_loop())
+    logger.info(f"Pending domain verification poll started (interval={PENDING_POLL_INTERVAL}s)")
     yield
     # --- shutdown ---
     audit_task.cancel()
-    try:
-        await audit_task
-    except asyncio.CancelledError:
-        pass
+    pending_task.cancel()
+    for task in (audit_task, pending_task):
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
     logger.info("App is shutting down")
 
 

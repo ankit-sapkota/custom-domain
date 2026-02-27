@@ -64,6 +64,19 @@ def get_a_records(domain: str) -> list[str]:
         return []
 
 
+def get_txt_records(domain: str) -> list[str]:
+    """Return all TXT record strings for *domain*."""
+    try:
+        answers = _make_resolver().resolve(domain, "TXT")
+        results: list[str] = []
+        for rdata in answers:
+            for txt_string in rdata.strings:
+                results.append(txt_string.decode())
+        return results
+    except Exception:
+        return []
+
+
 def check_txt_record(domain: str, expected_value: str) -> bool:
     """Return True if *domain* has a TXT record equal to *expected_value*."""
     try:
